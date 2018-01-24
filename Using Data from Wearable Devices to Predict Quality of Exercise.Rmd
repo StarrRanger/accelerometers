@@ -1,0 +1,118 @@
+# Background
+
+## Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement ¨C a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. 
+
+
+# Preparing the Data
+
+## Load the data
+
+```{r,warning=FALSE,results="hide",message=FALSE}
+library(caret);library(magrittr)
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv","pml-training.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv","pml-testing.csv")
+trainingDataSet<- read.csv("pml-training.csv", header=TRUE)
+testingDataSet<- read.csv("pml-testing.csv", header=TRUE)
+```
+maggrittr was loaded premarily for its %>% function
+
+## Inspect the data
+
+```{r,eval=FALSE}
+str(trainingDataSet); dim(testingDataSet)
+```
+There are some numerical variables wrongly attributed as factor variables, which we will remove later; There are also a number of variables that are almost always empty. We will remove those variables too.
+
+## Remove variables with nearly zero variance
+
+```{r,warning=FALSE}
+nzv <- nearZeroVar(trainingDataSet)
+trainingDataSet <- trainingDataSet[, -nzv]
+testingDataSet <- testingDataSet[, -nzv]
+```
+
+## Convert factor variables to numeric variables
+
+```{r,warning=FALSE,error=TRUE,results="hide",message=FALSE}
+asNumeric <- function(x) as.numeric(as.character(x))
+factorsNumeric <- function(d) modifyList(d, lapply(d[, sapply(d, is.factor)], 
+                                                   asNumeric))
+trainingDataSet %>%
+      subset(select = -c(X, raw_timestamp_part_1, raw_timestamp_part_2, 
+                         cvtd_timestamp, new_window, num_window, classe)) %>%
+      factorsNumeric -> trainingDataSet[ , 6:159]
+
+testingDataSet %>%
+      subset(select = -c(X, raw_timestamp_part_1, raw_timestamp_part_2, 
+                         cvtd_timestamp, new_window, num_window)) %>%
+      factorsNumeric -> testingDataSet[ , 6:159]
+```
+
+## Remove variabless that are almost always (more than 95% of the entries) empty
+
+```{r,warning=FALSE}
+mostlyNA <- sapply(trainingDataSet, function(x) mean(is.na(x))) > 0.95
+trainingDataSet <- trainingDataSet[, mostlyNA==F]
+testingDataSet <- testingDataSet[, mostlyNA==F]
+```
+
+## Remove variables that don't likely to be a predictor (X, user_name, etc)
+
+```{r,warning=FALSE}
+trainingDataSet <- trainingDataSet[,-(1:5)]
+testingDataSet <- testingDataSet[,-(1:5)]
+dim(trainingDataSet); dim(testingDataSet)
+```
+So a total of 54 variables are left for possible candidates for predictors
+
+## Devide the testing dataset into training and validation sets for the purpose of cross validation
+
+```{r,warning=FALSE}
+set.seed(1116)
+inTrain <- createDataPartition(y=trainingDataSet$classe, p=0.7, list=F)
+training <- trainingDataSet[inTrain,]
+validation <- trainingDataSet[-inTrain,]
+dim(training) ; dim(validation)
+```
+The data is hence ready for model building
+
+
+# Training and Cross Validating Model
+I'll start with Random Forest.
+
+## Training a random forest
+```{r,warning=FALSE,message=FALSE}
+library(randomForest)
+set.seed(1116)
+modFitrf <- randomForest(classe~ ., data = training, importance=TRUE, ntree=100)
+modFitrf
+```
+I can see the in sample error rate is 033%, which is a very good result. So I decided to stick with RF.
+
+##Use the model to predict classe in validation set, thus performing cross validation
+```{r,warning=FALSE}
+CrossVal <- predict(modFitrf, newdata=validation)
+confusionMatrix(validation$classe, CrossVal)
+```
+The accuracy is 99.7%, thus making the out of sample error rate lower than 0.3%. This is a satisfactory result.
+
+
+# Predicting on Testing Dataset
+```{r,warning=FALSE}
+predFinal <- predict(modFitrf, newdata=testingDataSet)
+predFinal
+```
